@@ -59,17 +59,28 @@ g_default_template = template '/etc/default/grafana-server' do
   mode '0644'
 end
 
-ini = node['grafana']['ini'].dup
+ini = node['grafana']['ini'].to_hash
 ini['paths'] ||= {}
 ini['paths']['data'] = node['grafana']['data_dir']
 ini['paths']['logs'] = node['grafana']['log_dir']
 
+if node['grafana'].key?('database_databag')
+  databag_info = node['grafana']['database_databag']
+  bag = Chef::EncryptedDataBagItem.load(databag_info['databag_name'], databag_info['databag_key'])
+  ini['database']['password'] = bag[ini['database']['user']]
+
+  if ini.key?('session') and ini['session'].key?('provider') and ini['session']['provider'] == 'mysql'
+    ini['session']['provider_config'] = "#{ini['database']['user']}:#{ini['database']['password']}@tcp(#{ini['database']['host']})/grafana"
+  end
+end
+
 g_ini_template = template "#{node['grafana']['conf_dir']}/grafana.ini" do
   source 'grafana.ini.erb'
   variables ini: ini
-  owner 'root'
-  group 'root'
-  mode '0644'
+  owner node['grafana']['user']
+  group node['grafana']['group']
+  sensitive true
+  mode '0600'
 end
 
 ruby_block 'restart grafana immediately after config change' do
